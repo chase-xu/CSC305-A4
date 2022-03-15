@@ -167,6 +167,16 @@ double ray_triangle_intersection(const Vector3d &ray_origin, const Vector3d &ray
     // TODO
     // Compute whether the ray intersects the given triangle.
     // If you have done the parallelogram case, this should be very similar to it.
+    const Vector3d A = b - a;
+    const Vector3d B = c - a;
+    N = A.cross(B).normalized();
+    double t = -1;
+    Vector3d U = ray_direction.normalized();
+
+
+
+
+
 
     return -1;
 }
