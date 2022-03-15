@@ -164,17 +164,36 @@ AABBTree::AABBTree(const MatrixXd &V, const MatrixXi &F)
 
 double ray_triangle_intersection(const Vector3d &ray_origin, const Vector3d &ray_direction, const Vector3d &a, const Vector3d &b, const Vector3d &c, Vector3d &p, Vector3d &N)
 {
+    //p is the intersection point, N is the norm at p
     // TODO
     // Compute whether the ray intersects the given triangle.
     // If you have done the parallelogram case, this should be very similar to it.
-    const Vector3d A = b - a;
-    const Vector3d B = c - a;
-    N = A.cross(B).normalized();
-    double t = -1;
-    Vector3d U = ray_direction.normalized();
+    //Get the triangle's N first
+    const Vector3d A = a - b;
+    const Vector3d B = a - b;
+    const Vector3d C = a - c;
+    const Vector3d d = ray_direction;
+    const Vector3d e = ray_origin;
+    const Vector3d w = a - ray_origin;
+    const Vector3d l (B[0], C[0], d[0]);
+    const Vector3d h (B[1], C[1], d[1]);
+    const Vector3d n (B[2], C[2], d[2]);
+    Matrix3d m;
+    Vector3d v;
+    m<<l,h,n;
+    const Vector3d K = m.colPivHouseholderQr().solve(w);
 
+    std::cout<<K;
+    const double beta = K[0];
+    const double alpha = K[1];
+    const double t = K[2];
+    const double g = beta + alpha;
 
-
+    if (t > 0 and beta >= 0 and alpha >= 0 and g <= 1){
+        p = ray_origin + t*d;
+        N = A.cross(B).normalized();
+        return t;
+    }
 
 
 
@@ -194,13 +213,27 @@ bool ray_box_intersection(const Vector3d &ray_origin, const Vector3d &ray_direct
 bool find_nearest_object(const Vector3d &ray_origin, const Vector3d &ray_direction, Vector3d &p, Vector3d &N)
 {
     Vector3d tmp_p, tmp_N;
-
+    int closest_index = -1;
+    double closest_t = std::numeric_limits<double>::max();
     // TODO
     // Method (1): Traverse every triangle and return the closest hit.
+    for(int i=0; i < facets.size(); ++i){
+        Vector3d triangle = facets[i];
+        const double t = ray_triangle_intersection(ray_origin, ray_direction, triangle[0], 
+        triangle[1], triangle[2], tmp_p, tmp_N);
+        if(t>0){
+            if (t < closest_t){
+                closest_index = i;
+                closest_t = t;
+                p = tmp_p;
+                N = tmp_N;
+            }
+        }
+    }
     // Method (2): Traverse the BVH tree and test the intersection with a
     // triangles at the leaf nodes that intersects the input ray.
 
-    return false;
+    return closest_index;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
