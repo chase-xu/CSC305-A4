@@ -46,7 +46,11 @@ public:
 ////////////////////////////////////////////////////////////////////////////////
 const std::string data_dir = DATA_DIR;
 const std::string filename("raytrace.png");
-const std::string mesh_filename(data_dir + "dodeca.off");
+// const std::string mesh_filename(data_dir + "dodeca.off");
+const std::string mesh_filename(data_dir + "bunny.off");
+// const std::string mesh_filename(data_dir + "cube.off");
+
+
 
 //Camera settings
 const double focal_length = 2;
@@ -172,31 +176,34 @@ double ray_triangle_intersection(const Vector3d &ray_origin, const Vector3d &ray
     const Vector3d A = a - b;
     const Vector3d B = a - b;
     const Vector3d C = a - c;
-    const Vector3d d = ray_direction;
+    const Vector3d d = ray_direction.normalized(); //direction
     const Vector3d e = ray_origin;
-    const Vector3d w = a - ray_origin;
-    const Vector3d l (B[0], C[0], d[0]);
-    const Vector3d h (B[1], C[1], d[1]);
-    const Vector3d n (B[2], C[2], d[2]);
+    const Vector3d w = a - e;
+    // const Vector3d l (B[0], C[0], d[0]);
+    // const Vector3d h (B[1], C[1], d[1]);
+    // const Vector3d n (B[2], C[2], d[2]);
     Matrix3d m;
     Vector3d v;
-    m<<l,h,n;
+    m<<A, C, d;
     const Vector3d K = m.colPivHouseholderQr().solve(w);
 
-    std::cout<<K;
     const double beta = K[0];
     const double alpha = K[1];
     const double t = K[2];
     const double g = beta + alpha;
 
     if (t > 0 and beta >= 0 and alpha >= 0 and g <= 1){
-        p = ray_origin + t*d;
-        N = A.cross(B).normalized();
+        p = e + t*d;
+        // N = -A.cross(B).normalized();
+        // p = b + K(0)*A+K(1)*B;
+        Vector3d E = p - a;
+        Vector3d F = p - b;
+        N = -E.cross(F).normalized();
+        // std::cout<<K<<std::endl;
+        // std::cout<<t<<std::endl;
+        // exit (EXIT_FAILURE);
         return t;
     }
-
-
-
     return -1;
 }
 
@@ -205,22 +212,58 @@ bool ray_box_intersection(const Vector3d &ray_origin, const Vector3d &ray_direct
     // TODO
     // Compute whether the ray intersects the given box.
     // we are not testing with the real surface here anyway.
+    // std::cout<< box.dim()<<std::endl;
+    // exit (EXIT_FAILURE);
+    // Eigen::<double,3>::CornerType
+    //if the ray intersect with either one surface, it will intersect with the box
+    const Vector3d ray_direct =  ray_direction.normalized();
+    // Vector3d t_xmin = ();
+    Vector3d max = box.max();
+    Vector3d min = box.min();
+    const double width = max[0] - min[0];
+    const double length = max[1] - min[1];
+    const double height = max[2] - min[2];
+
+    const double t_xmin =  (min.x() - ray_origin.x()) / ray_direction.x();
+    const double t_xmax = (max.x() - ray_origin.x()) / ray_direction.x();
+    const double t_ymin = (min.y() - ray_origin.y()) / ray_direction.y();
+    const double t_ymax = (max.y() - ray_origin.y()) / ray_direction.y();
+    const double t_zmin = (min.z() - ray_origin.z()) / ray_direction.z();
+    const double t_zmax = (max.z() - ray_origin.z()) / ray_direction.z();
+
+    if (t_xmin > t_xmax or t_ymin > t_ymax or t_zmin > t_zmax){
+        return false;
+    } 
+
+    // const Vector3d b = box.corner(BottomRightFloor<double,3>);
+
     return false;
 }
 
 //Finds the closest intersecting object returns its index
 //In case of intersection it writes into p and N (intersection point and normals)
-bool find_nearest_object(const Vector3d &ray_origin, const Vector3d &ray_direction, Vector3d &p, Vector3d &N)
+int find_nearest_object(const Vector3d &ray_origin, const Vector3d &ray_direction, Vector3d &p, Vector3d &N)
 {
     Vector3d tmp_p, tmp_N;
     int closest_index = -1;
     double closest_t = std::numeric_limits<double>::max();
     // TODO
     // Method (1): Traverse every triangle and return the closest hit.
-    for(int i=0; i < facets.size(); ++i){
-        Vector3d triangle = facets[i];
-        const double t = ray_triangle_intersection(ray_origin, ray_direction, triangle[0], 
-        triangle[1], triangle[2], tmp_p, tmp_N);
+    // std::cout<<facets<< std::endl;
+    // exit (EXIT_FAILURE);
+    // Vectorx a = facets(0,0)
+    // std::cout<<facets(0,1)<<std::endl;
+    // std::cout<<vertices.row(0)<<std::endl;
+    // exit (EXIT_FAILURE);
+    for(int i=0; i < facets.rows(); ++i){
+
+        const Vector3d a (vertices(facets(i,0), 0),vertices(facets(i,0), 1),vertices(facets(i,0), 2));
+        const Vector3d b (vertices(facets(i,1), 0),vertices(facets(i,1), 1),vertices(facets(i,1), 2));
+        const Vector3d c (vertices(facets(i,2), 0),vertices(facets(i,2), 1),vertices(facets(i,2), 2));
+
+        // std::cout<<a<<b<<c<<std::endl;
+        // exit (EXIT_FAILURE);
+        const double t = ray_triangle_intersection(ray_origin, ray_direction, a, b, c, tmp_p, tmp_N);
         if(t>0){
             if (t < closest_t){
                 closest_index = i;
@@ -232,8 +275,26 @@ bool find_nearest_object(const Vector3d &ray_origin, const Vector3d &ray_directi
     }
     // Method (2): Traverse the BVH tree and test the intersection with a
     // triangles at the leaf nodes that intersects the input ray.
-
+    // std::cout<<closest_index<<std::endl;
+    // exit (EXIT_FAILURE);
     return closest_index;
+}
+
+
+//Checks if the light is visible
+bool is_light_visible(const Vector3d &ray_origin, const Vector3d &ray_direction, const Vector3d &light_position)
+{
+    // TODO: Determine if the light is visible here
+    // Use find_nearest_object
+    Vector3d p, N;
+    // const Vector3d 
+    const int intersection = find_nearest_object(ray_origin, ray_direction, p, N);
+    //if no object in between
+    if (intersection == -1){
+        return false;
+    }
+
+    return true;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -245,9 +306,9 @@ Vector4d shoot_ray(const Vector3d &ray_origin, const Vector3d &ray_direction)
     //Intersection point and normal, these are output of find_nearest_object
     Vector3d p, N;
 
-    const bool nearest_object = find_nearest_object(ray_origin, ray_direction, p, N);
+    const int nearest_object = find_nearest_object(ray_origin, ray_direction, p, N);
 
-    if (!nearest_object)
+    if (nearest_object == -1)
     {
         // Return a transparent color
         return Vector4d(0, 0, 0, 0);
@@ -264,11 +325,18 @@ Vector4d shoot_ray(const Vector3d &ray_origin, const Vector3d &ray_direction)
         const Vector4d &light_color = light_colors[i];
 
         Vector4d diff_color = obj_diffuse_color;
-
-        // TODO: Add shading parameters
-
-        // Diffuse contribution
         const Vector3d Li = (light_position - p).normalized();
+        // TODO: Add shading parameters
+        // const Vector3d shadow_ray =  (light_position - p).normalized();
+        // const float shadow_ray_length = (light_position - p).norm();
+        // // const int intersection = find_nearest_object(p+0.0001*Li, Li, light_position, );
+        // const Vector3d Li = (light_position - p).normalized(); //normal vector pointing to light from intersection
+        // const unsigned int visible = is_light_visible(p+0.0001*Li, Li, light_position);
+        // if (visible == true){
+        //     continue;
+        // }
+ 
+        // Diffuse contribution
         const Vector4d diffuse = diff_color * std::max(Li.dot(N), 0.0);
 
         // Specular contribution
@@ -308,8 +376,10 @@ void raytrace_scene()
     // and covers an viewing angle given by 'field_of_view'.
     double aspect_ratio = double(w) / double(h);
     //TODO
-    double image_y = 1;
-    double image_x = 1;
+    // double image_y = 1;
+    // double image_x = 1;
+    double image_y = focal_length * tan(field_of_view/2); //TODO: compute the correct pixels size
+    double image_x = image_y * aspect_ratio; //TODO: compute the correct pixels size
 
     // The pixel grid through which we shoot rays is at a distance 'focal_length'
     const Vector3d image_origin(-image_x, image_y, camera_position[2] - focal_length);
