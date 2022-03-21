@@ -32,10 +32,13 @@ public:
         int left;     // Index of the left child (-1 for a leaf)
         int right;    // Index of the right child (-1 for a leaf)
         int triangle; // Index of the node triangle (-1 for internal nodes)
+        Matrix3d coordinates; //triangles coord
+        Vector3d cent;
     };
 
     std::vector<Node> nodes;
     int root;
+
 
     AABBTree() = default;                           // Default empty constructor
     AABBTree(const MatrixXd &V, const MatrixXi &F); // Build a BVH from an existing mesh
@@ -79,6 +82,14 @@ std::vector<Vector3d> light_positions;
 std::vector<Vector4d> light_colors;
 //Ambient light
 const Vector4d ambient_light(0.2, 0.2, 0.2, 0);
+
+//Maximum number of recursive calls
+const int max_bounce = 3;
+
+// Objects
+std::vector<Vector3d> sphere_centers;
+std::vector<double> sphere_radii;
+std::vector<Matrix3d> parallelograms;
 
 //Fills the different arrays
 void setup_scene()
@@ -126,12 +137,52 @@ void setup_scene()
 
     light_positions.emplace_back(-4, 8, 0);
     light_colors.emplace_back(16, 16, 16, 0);
+
+
+
+
+    grid.resize(grid_size + 1);
+    for (int i = 0; i < grid_size + 1; ++i)
+    {
+        grid[i].resize(grid_size + 1);
+        for (int j = 0; j < grid_size + 1; ++j)
+            grid[i][j] = Vector2d::Random().normalized();
+    }
+
+    //Spheres
+    sphere_centers.emplace_back(10, 0, 1);
+    sphere_radii.emplace_back(1);
+
+    sphere_centers.emplace_back(7, 0.05, -1);
+    sphere_radii.emplace_back(1);
+
+    sphere_centers.emplace_back(4, 0.1, 1);
+    sphere_radii.emplace_back(1);
+
+    sphere_centers.emplace_back(1, 0.2, -1);
+    sphere_radii.emplace_back(1);
+
+    sphere_centers.emplace_back(-2, 0.4, 1);
+    sphere_radii.emplace_back(1);
+
+    sphere_centers.emplace_back(-5, 0.8, -1);
+    sphere_radii.emplace_back(1);
+
+    sphere_centers.emplace_back(-8, 1.6, 1);
+    sphere_radii.emplace_back(1);
+
+    //parallelograms
+    parallelograms.emplace_back();
+    parallelograms.back() << -100, 100, -100,
+        -1.25, 0, -1.2,
+        -100, -100, 100;
+
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 // BVH Code
 ////////////////////////////////////////////////////////////////////////////////
-
+AlignedBox3d bbox_from_triangle(const Vector3d &a, const Vector3d &b, const Vector3d &c);
 AlignedBox3d bbox_from_triangle(const Vector3d &a, const Vector3d &b, const Vector3d &c)
 {
     AlignedBox3d box;
@@ -142,24 +193,44 @@ AlignedBox3d bbox_from_triangle(const Vector3d &a, const Vector3d &b, const Vect
 }
 
 AABBTree::AABBTree(const MatrixXd &V, const MatrixXi &F)
-{
+{   //V is vertices and F is facets
     // Compute the centroids of all the triangles in the input mesh
-    MatrixXd centroids(F.rows(), V.cols());
+    MatrixXd centroids(F.rows(), V.cols()+1);
+    AlignedBox3d boxes[F.rows()];
     centroids.setZero();
+
     for (int i = 0; i < F.rows(); ++i)
     {
         for (int k = 0; k < F.cols(); ++k)
         {
             centroids.row(i) += V.row(F(i, k));
+            // Matrix3d verts = V.row(F(i, k));  
+            
+            // AlignedBox3d triangle_box = bbox_from_triangle(verts.row(0), verts.row(1), verts.row(2));
+            // boxes[i] = triangle_box;
+            // Node node;
+            // node.triangle = i;
+            // node.bbox = triangle_box;
+            // this->nodes.push_back(node); 
+
         }
         centroids.row(i) /= F.cols();
+        //remeber triangle index
+        // centroids(i, 3) = i;
     }
 
-    // TODO
+    // sort
+    // TODO splite the boxes calling AABBTREE recursively
+    // MatrixXd S1;
+    // MatrixXd S2;
+    // for(int i = 0; i < centroid.rows(); ++i){
+    //     centroids.row(i);
+    // }
 
     // Top-down approach.
     // Split each set of primitives into 2 sets of roughly equal size,
     // based on sorting the centroids along one direction or another.
+
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -207,6 +278,63 @@ double ray_triangle_intersection(const Vector3d &ray_origin, const Vector3d &ray
     return -1;
 }
 
+
+//Compute the intersection between a ray and a sphere, return -1 if no intersection
+double ray_sphere_intersection(const Vector3d &ray_origin, const Vector3d &ray_direction, int index, Vector3d &p, Vector3d &N)
+{
+    // TODO, implement the intersection between the ray and the sphere at index index.
+    //return t or -1 if no intersection
+
+    const Vector3d sphere_center = sphere_centers[index];
+    const double sphere_radius = sphere_radii[index];
+
+    double t = -1;
+    Vector3d U = ray_direction.normalized();
+    Vector3d q = ray_origin - sphere_center;
+    double l = 2 * U.dot(q);
+    double w = l*l - 4*(q.dot(q) - pow(sphere_radius,2));
+    if (w<0)
+    {
+        return -1;
+    }
+    else if (w==0){
+        t=-l/2;
+    }
+    else{
+        t = (-l-sqrt(w))/2;
+    }
+    p = ray_origin + t * U;
+    N = (-sphere_center+p).normalized();
+    return t;
+}
+
+//Compute the intersection between a ray and a paralleogram, return -1 if no intersection
+double ray_parallelogram_intersection(const Vector3d &ray_origin, const Vector3d &ray_direction, int index, Vector3d &p, Vector3d &N)
+{
+    // TODO, implement the intersection between the ray and the parallelogram at index index.
+    //return t or -1 if no intersection
+
+    const Vector3d pgram_origin = parallelograms[index].col(0);
+    const Vector3d A = parallelograms[index].col(1);
+    const Vector3d B = parallelograms[index].col(2);
+    const Vector3d pgram_u = A - pgram_origin;
+    const Vector3d pgram_v = B - pgram_origin;
+
+    Matrix3d a;
+    Vector3d v;
+    a<<pgram_u,pgram_v,-ray_direction;
+    v<<ray_origin-pgram_origin;
+    Vector3d w = a.colPivHouseholderQr().solve(v);
+    if (w(0)<=1 and w(0) > 0 and w(1) <=1 and w(1)>0)
+    {
+        p = pgram_origin + w(0)*pgram_u+w(1)*pgram_v;
+        N = -pgram_u.cross(pgram_v).normalized();
+        return w(2);
+    } 
+    
+    return -1;
+}
+
 bool ray_box_intersection(const Vector3d &ray_origin, const Vector3d &ray_direction, const AlignedBox3d &box)
 {
     // TODO
@@ -223,20 +351,44 @@ bool ray_box_intersection(const Vector3d &ray_origin, const Vector3d &ray_direct
     const double width = max[0] - min[0];
     const double length = max[1] - min[1];
     const double height = max[2] - min[2];
-
-    const double t_xmin =  (min.x() - ray_origin.x()) / ray_direction.x();
-    const double t_xmax = (max.x() - ray_origin.x()) / ray_direction.x();
-    const double t_ymin = (min.y() - ray_origin.y()) / ray_direction.y();
-    const double t_ymax = (max.y() - ray_origin.y()) / ray_direction.y();
-    const double t_zmin = (min.z() - ray_origin.z()) / ray_direction.z();
-    const double t_zmax = (max.z() - ray_origin.z()) / ray_direction.z();
+    const double a = 1 / ray_direction.x();
+    const double b = 1 / ray_direction.y();
+    const double c = 1/ ray_direction.z();
+    double t_xmin;
+    double t_xmax;
+    double t_ymin;
+    double t_ymax;
+    double t_zmin;
+    double t_zmax;
+    if(ray_direction.x() > 0){
+        t_xmin =  a*(min.x() - ray_origin.x());
+        t_xmax = a*(max.x() - ray_origin.x());
+    }else{
+        t_xmax =  a*(min.x() - ray_origin.x());
+        t_xmin = a*(max.x() - ray_origin.x());
+    }
+    if(ray_direction.y() > 0){
+        t_ymin = b*(min.y() - ray_origin.y()) ;
+        t_ymax = b*(max.y() - ray_origin.y());
+    }else{
+        t_ymax = b*(min.y() - ray_origin.y());
+        t_ymin = b*(max.y() - ray_origin.y());
+    }
+    if(ray_direction.z() > 0){
+        t_zmin = c*(min.z() - ray_origin.z());
+        t_zmax = c*(max.z() - ray_origin.z());
+    }else{
+        t_zmax= c*(min.z() - ray_origin.z());
+        t_zmin= c*(max.z() - ray_origin.z());
+    }
 
     if (t_xmin > t_xmax or t_ymin > t_ymax or t_zmin > t_zmax){
         return false;
-    } 
+    }else{
+        return true;
+    }
 
     // const Vector3d b = box.corner(BottomRightFloor<double,3>);
-
     return false;
 }
 
@@ -273,6 +425,42 @@ int find_nearest_object(const Vector3d &ray_origin, const Vector3d &ray_directio
             }
         }
     }
+
+    for (int i = 0; i < sphere_centers.size(); ++i)
+    {
+        //returns t and writes on tmp_p and tmp_N
+        const double t = ray_sphere_intersection(ray_origin, ray_direction, i, tmp_p, tmp_N);
+        //We have intersection
+        if (t >= 0)
+        {
+            //The point is before our current closest t
+            if (t < closest_t)
+            {
+                closest_index = i;
+                closest_t = t;
+                p = tmp_p;
+                N = tmp_N;
+            }
+        }
+    }
+
+    for (int i = 0; i < parallelograms.size(); ++i)
+    {
+        //returns t and writes on tmp_p and tmp_N
+        const double t = ray_parallelogram_intersection(ray_origin, ray_direction, i, tmp_p, tmp_N);
+        //We have intersection
+        if (t >= 0)
+        {
+            //The point is before our current closest t
+            if (t < closest_t)
+            {
+                closest_index = sphere_centers.size() + i;
+                closest_t = t;
+                p = tmp_p;
+                N = tmp_N;
+            }
+        }
+    }
     // Method (2): Traverse the BVH tree and test the intersection with a
     // triangles at the leaf nodes that intersects the input ray.
     // std::cout<<closest_index<<std::endl;
@@ -301,14 +489,14 @@ bool is_light_visible(const Vector3d &ray_origin, const Vector3d &ray_direction,
 // Raytracer code
 ////////////////////////////////////////////////////////////////////////////////
 
-Vector4d shoot_ray(const Vector3d &ray_origin, const Vector3d &ray_direction)
+Vector4d shoot_ray(const Vector3d &ray_origin, const Vector3d &ray_direction, int max_bounce)
 {
     //Intersection point and normal, these are output of find_nearest_object
     Vector3d p, N;
 
     const int nearest_object = find_nearest_object(ray_origin, ray_direction, p, N);
 
-    if (nearest_object == -1)
+    if (nearest_object < 0)
     {
         // Return a transparent color
         return Vector4d(0, 0, 0, 0);
@@ -331,10 +519,10 @@ Vector4d shoot_ray(const Vector3d &ray_origin, const Vector3d &ray_direction)
         // const float shadow_ray_length = (light_position - p).norm();
         // // const int intersection = find_nearest_object(p+0.0001*Li, Li, light_position, );
         // const Vector3d Li = (light_position - p).normalized(); //normal vector pointing to light from intersection
-        // const unsigned int visible = is_light_visible(p+0.0001*Li, Li, light_position);
-        // if (visible == true){
-        //     continue;
-        // }
+        const int visible = is_light_visible(p+0.0001*Li, Li, light_position);
+        if (visible == true){
+            continue;
+        }
  
         // Diffuse contribution
         const Vector4d diffuse = diff_color * std::max(Li.dot(N), 0.0);
@@ -349,9 +537,20 @@ Vector4d shoot_ray(const Vector3d &ray_origin, const Vector3d &ray_direction)
         lights_color += (diffuse + specular).cwiseProduct(light_color) / D.squaredNorm();
     }
 
-    // Rendering equation
-    Vector4d C = ambient_color + lights_color;
 
+    Vector4d refl_color (0.7, 0.7, 0.7, 0);
+    if (nearest_object == 4)
+    {
+        refl_color = Vector4d(0.5, 0.5, 0.5, 0);
+    }
+    Vector4d reflection_color(0, 0, 0, 0);
+    Vector3d d = ray_direction.normalized();
+    Vector3d r = d - 2 * (d.dot(N)* N);
+    reflection_color = refl_color.cwiseProduct(shoot_ray(p + 0.0001*r, r, max_bounce-1));
+    Vector4d refraction_color(0, 0, 0, 0);
+    // Rendering equation
+    Vector4d C = ambient_color + lights_color + reflection_color + refraction_color;
+    // Vector4d C = ambient_color + lights_color;
     //Set alpha to 1
     C(3) = 1;
 
@@ -409,7 +608,7 @@ void raytrace_scene()
                 ray_direction = Vector3d(0, 0, -1);
             }
 
-            const Vector4d C = shoot_ray(ray_origin, ray_direction);
+            const Vector4d C = shoot_ray(ray_origin, ray_direction, max_bounce);
             R(i, j) = C(0);
             G(i, j) = C(1);
             B(i, j) = C(2);
