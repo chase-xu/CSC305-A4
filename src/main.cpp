@@ -7,6 +7,7 @@
 #include <fstream>
 #include <algorithm>
 #include <numeric>
+#include <cmath>
 
 // Utilities for the Assignment
 #include "utils.h"
@@ -21,27 +22,27 @@ using namespace Eigen;
 ////////////////////////////////////////////////////////////////////////////////
 // Class to store tree
 ////////////////////////////////////////////////////////////////////////////////
-class AABBTree
+class Node
 {
-public:
-    class Node
-    {
     public:
         AlignedBox3d bbox;
         int parent;   // Index of the parent node (-1 for root)
         int left;     // Index of the left child (-1 for a leaf)
         int right;    // Index of the right child (-1 for a leaf)
-        int triangle; // Index of the node triangle (-1 for internal nodes)
+        int triangle = -1; // Index of the node triangle (-1 for internal nodes)
+        bool leaf = false; //check wether this is a leaf node
         Matrix3d coordinates; //triangles coord
-        Vector3d cent;
-    };
+        // Vector4d cent;
+        // bool empty = false;
+};
 
-    std::vector<Node> nodes;
-    int root;
-
-
-    AABBTree() = default;                           // Default empty constructor
-    AABBTree(const MatrixXd &V, const MatrixXi &F); // Build a BVH from an existing mesh
+class AABBTree
+{
+    public:
+        std::vector<Node> nodes;
+        int root;
+        AABBTree() = default;                           // Default empty constructor
+        AABBTree(const MatrixXd &V, const MatrixXi &F); // Build a BVH from an existing mesh
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -179,10 +180,24 @@ void setup_scene()
 
 }
 
+//function use to slice vector
+template<typename T>
+std::vector<T> slice(std::vector<T> const &v, int m, int n)
+{
+    auto first = v.cbegin() + m;
+    auto last = v.cbegin() + n + 1;
+ 
+    std::vector<T> vec(first, last);
+    return vec;
+}
+ 
+
 ////////////////////////////////////////////////////////////////////////////////
 // BVH Code
 ////////////////////////////////////////////////////////////////////////////////
 AlignedBox3d bbox_from_triangle(const Vector3d &a, const Vector3d &b, const Vector3d &c);
+
+
 AlignedBox3d bbox_from_triangle(const Vector3d &a, const Vector3d &b, const Vector3d &c)
 {
     AlignedBox3d box;
@@ -192,40 +207,118 @@ AlignedBox3d bbox_from_triangle(const Vector3d &a, const Vector3d &b, const Vect
     return box;
 }
 
+
+
+bool comparison_function(const Vector4d& v1, 
+                         const Vector4d& v2) {
+  // calculate some comparison_result
+  if(v1.x() > v2.x()){
+      return true;
+  }
+  else{
+      return false;
+  }
+}
+//cents: sorted array of vertices4d
+//verts: unsorted 3d matrix vector
+//boxes: unsorted 3d boxes vector
+//nodes: empty nodes array
+//root should be node number one
+int build (const std::vector<Vector4d>& cents, const std::vector<Matrix3d> &verts, const std::vector<AlignedBox3d>& boxes, std::vector<Node> &nodes, int parent_index=-1){
+    
+    if(cents.size() == 1){
+        Node leaf;
+        leaf.leaf = true;
+        int index = cents[0](3);
+        leaf.bbox = boxes[index];
+        leaf.triangle = index;
+        leaf.parent =  parent_index;
+        Matrix3d v = verts[index];
+        leaf.coordinates = v;
+        nodes.push_back(leaf);
+        int inserted = nodes.size() - 1;
+        return inserted;
+    }
+
+    int mid = ceil(cents.size()/2);
+    std::vector<Vector4d> S1 = slice(cents, 0, mid-1);
+    std::vector<Vector4d> S2 = slice(cents, mid, cents.size()-1);
+    Node parent;
+    AlignedBox3d box;
+    parent.bbox = box;
+    parent.triangle = -1;
+    parent.parent = parent_index;
+    nodes.push_back(parent);
+    parent_index = nodes.size()-1;
+    //handle left nodes
+    int inserted = build(S1, verts, boxes, nodes, parent_index);
+    parent.left =  inserted;
+    Node left = nodes[inserted];
+    box.extend(left.bbox);
+    //handle right nodes
+    int inserted2 = build(S2, verts, boxes, nodes, parent_index);
+    parent.right = inserted2;
+    Node right = nodes[inserted2];
+    box.extend(right.bbox);
+
+    return -1;
+
+}
+
 AABBTree::AABBTree(const MatrixXd &V, const MatrixXi &F)
 {   //V is vertices and F is facets
     // Compute the centroids of all the triangles in the input mesh
+    // vector<Vector3d>
     MatrixXd centroids(F.rows(), V.cols()+1);
-    AlignedBox3d boxes[F.rows()];
+    // AlignedBox3d boxes[F.rows()];
     centroids.setZero();
-
+    // Matrix3d verts;
+    std::vector<Matrix3d> verts;
     for (int i = 0; i < F.rows(); ++i)
-    {
+    {   
+        Matrix3d v;
         for (int k = 0; k < F.cols(); ++k)
         {
             centroids.row(i) += V.row(F(i, k));
-            // Matrix3d verts = V.row(F(i, k));  
-            
-            // AlignedBox3d triangle_box = bbox_from_triangle(verts.row(0), verts.row(1), verts.row(2));
-            // boxes[i] = triangle_box;
-            // Node node;
-            // node.triangle = i;
-            // node.bbox = triangle_box;
-            // this->nodes.push_back(node); 
-
+            v.row(k) = V.row(F(i, k));
         }
+        verts.push_back(v);
         centroids.row(i) /= F.cols();
-        //remeber triangle index
-        // centroids(i, 3) = i;
+        //remeber the index of triangle for this centroid
+        centroids(i, 3) = i;
     }
 
-    // sort
-    // TODO splite the boxes calling AABBTREE recursively
-    // MatrixXd S1;
-    // MatrixXd S2;
-    // for(int i = 0; i < centroid.rows(); ++i){
-    //     centroids.row(i);
-    // }
+    //1. sort centroids
+    //put centroids into vectors
+
+    std::vector<Vector4d> cents;
+    for(int i = 0; i < centroids.rows(); ++i){
+        cents.push_back(centroids.row(i));
+    }
+    //sort cents
+    std::sort(cents.begin(), cents.end(), comparison_function);
+    //cents is sorted
+    //2. create node and box for each sorted centroids
+    Vector3d a;
+    Vector3d b;
+    Vector3d c;
+    int index;
+    int mid = ceil(cents.size()/2);
+    std::vector<AlignedBox3d> boxes;
+    for(int i = 0; i < cents.size(); ++i){
+        Node node;
+        index = cents[i](3);
+        a = verts[index].row(0);
+        b = verts[index].row(1);
+        b = verts[index].row(2);
+        AlignedBox3d triangle_box = bbox_from_triangle(a, b, c);
+        boxes.push_back(triangle_box);
+    }
+    //build with recursive, cents is sorted vector with coord, verts is array of 3d matrix with vertices
+    //boxes is A   
+    std::vector<Node> nodes; 
+    build(cents, verts, boxes, nodes);
+    this->nodes = nodes;
 
     // Top-down approach.
     // Split each set of primitives into 2 sets of roughly equal size,
@@ -250,9 +343,6 @@ double ray_triangle_intersection(const Vector3d &ray_origin, const Vector3d &ray
     const Vector3d d = ray_direction.normalized(); //direction
     const Vector3d e = ray_origin;
     const Vector3d w = a - e;
-    // const Vector3d l (B[0], C[0], d[0]);
-    // const Vector3d h (B[1], C[1], d[1]);
-    // const Vector3d n (B[2], C[2], d[2]);
     Matrix3d m;
     Vector3d v;
     m<<A, C, d;
@@ -265,11 +355,11 @@ double ray_triangle_intersection(const Vector3d &ray_origin, const Vector3d &ray
 
     if (t > 0 and beta >= 0 and alpha >= 0 and g <= 1){
         p = e + t*d;
-        // N = -A.cross(B).normalized();
+        N = (b-a).cross((c-a)).normalized();
         // p = b + K(0)*A+K(1)*B;
-        Vector3d E = p - a;
-        Vector3d F = p - b;
-        N = -E.cross(F).normalized();
+        Vector3d E = a - p;
+        Vector3d F = b - p;
+        // N = E.cross(F).normalized();
         // std::cout<<K<<std::endl;
         // std::cout<<t<<std::endl;
         // exit (EXIT_FAILURE);
@@ -340,10 +430,6 @@ bool ray_box_intersection(const Vector3d &ray_origin, const Vector3d &ray_direct
     // TODO
     // Compute whether the ray intersects the given box.
     // we are not testing with the real surface here anyway.
-    // std::cout<< box.dim()<<std::endl;
-    // exit (EXIT_FAILURE);
-    // Eigen::<double,3>::CornerType
-    //if the ray intersect with either one surface, it will intersect with the box
     const Vector3d ray_direct =  ray_direction.normalized();
     // Vector3d t_xmin = ();
     Vector3d max = box.max();
@@ -392,6 +478,50 @@ bool ray_box_intersection(const Vector3d &ray_origin, const Vector3d &ray_direct
     return false;
 }
 
+//return closet t
+int bvh_search(const Vector3d &ray_origin, const Vector3d &ray_direction, Vector3d &p, Vector3d &N, Vector3d& tmp_p, Vector3d& tmp_N){
+    int closest_index = -1;
+    double closest_t = std::numeric_limits<double>::max();
+    std::vector<Node> nodes = bvh.nodes;
+    Node root = nodes[0];
+    bool inter = ray_box_intersection(ray_direction, ray_direction, nodes[0].bbox);
+    Node curr = nodes[0];
+    int i = 0;
+    while(inter){
+        Node left = nodes[curr.left];
+        Node right = nodes[curr.right];
+        bool inter_left = ray_box_intersection(ray_direction, ray_direction, left.bbox);
+        bool inter_right = ray_box_intersection(ray_direction, ray_direction, right.bbox);
+        if(inter_left == true){
+            if(left.triangle != -1){
+                Matrix3d v = left.coordinates;
+                const double t = ray_triangle_intersection(ray_origin,ray_direction, v.row(0), v.row(1), v.row(2), tmp_p, tmp_N);
+                if(t>0){
+                    if (t < closest_t){
+                        closest_index = i;
+                        closest_t = t;
+                        p = tmp_p;
+                        N = tmp_N;
+                    }
+                }
+            }else{
+                curr = left;
+                continue;
+            }
+
+        }
+        if(inter_right == true){
+            curr = right;
+            continue;
+        }else{
+            break;
+        }
+        i++;
+
+    }
+    return closest_index;
+}
+
 //Finds the closest intersecting object returns its index
 //In case of intersection it writes into p and N (intersection point and normals)
 int find_nearest_object(const Vector3d &ray_origin, const Vector3d &ray_direction, Vector3d &p, Vector3d &N)
@@ -402,11 +532,6 @@ int find_nearest_object(const Vector3d &ray_origin, const Vector3d &ray_directio
     // TODO
     // Method (1): Traverse every triangle and return the closest hit.
     // std::cout<<facets<< std::endl;
-    // exit (EXIT_FAILURE);
-    // Vectorx a = facets(0,0)
-    // std::cout<<facets(0,1)<<std::endl;
-    // std::cout<<vertices.row(0)<<std::endl;
-    // exit (EXIT_FAILURE);
     for(int i=0; i < facets.rows(); ++i){
 
         const Vector3d a (vertices(facets(i,0), 0),vertices(facets(i,0), 1),vertices(facets(i,0), 2));
@@ -426,6 +551,11 @@ int find_nearest_object(const Vector3d &ray_origin, const Vector3d &ray_directio
         }
     }
 
+    // Method (2): Traverse the BVH tree and test the intersection with a
+    // triangles at the leaf nodes that intersects the input ray.
+  
+
+
     for (int i = 0; i < sphere_centers.size(); ++i)
     {
         //returns t and writes on tmp_p and tmp_N
@@ -436,7 +566,7 @@ int find_nearest_object(const Vector3d &ray_origin, const Vector3d &ray_directio
             //The point is before our current closest t
             if (t < closest_t)
             {
-                closest_index = i;
+                closest_index = facets.rows() + i;
                 closest_t = t;
                 p = tmp_p;
                 N = tmp_N;
@@ -454,17 +584,20 @@ int find_nearest_object(const Vector3d &ray_origin, const Vector3d &ray_directio
             //The point is before our current closest t
             if (t < closest_t)
             {
-                closest_index = sphere_centers.size() + i;
+                closest_index = facets.rows() + sphere_centers.size() + i;
                 closest_t = t;
                 p = tmp_p;
                 N = tmp_N;
             }
         }
     }
-    // Method (2): Traverse the BVH tree and test the intersection with a
-    // triangles at the leaf nodes that intersects the input ray.
+
     // std::cout<<closest_index<<std::endl;
     // exit (EXIT_FAILURE);
+
+
+
+
     return closest_index;
 }
 
@@ -515,10 +648,7 @@ Vector4d shoot_ray(const Vector3d &ray_origin, const Vector3d &ray_direction, in
         Vector4d diff_color = obj_diffuse_color;
         const Vector3d Li = (light_position - p).normalized();
         // TODO: Add shading parameters
-        // const Vector3d shadow_ray =  (light_position - p).normalized();
-        // const float shadow_ray_length = (light_position - p).norm();
-        // // const int intersection = find_nearest_object(p+0.0001*Li, Li, light_position, );
-        // const Vector3d Li = (light_position - p).normalized(); //normal vector pointing to light from intersection
+        
         const int visible = is_light_visible(p+0.0001*Li, Li, light_position);
         if (visible == true){
             continue;
@@ -538,7 +668,7 @@ Vector4d shoot_ray(const Vector3d &ray_origin, const Vector3d &ray_direction, in
     }
 
 
-    Vector4d refl_color (0.7, 0.7, 0.7, 0);
+    Vector4d refl_color = obj_reflection_color;
     if (nearest_object == 4)
     {
         refl_color = Vector4d(0.5, 0.5, 0.5, 0);
@@ -548,7 +678,6 @@ Vector4d shoot_ray(const Vector3d &ray_origin, const Vector3d &ray_direction, in
     Vector3d r = d - 2 * (d.dot(N)* N);
     reflection_color = refl_color.cwiseProduct(shoot_ray(p + 0.0001*r, r, max_bounce-1));
     Vector4d refraction_color(0, 0, 0, 0);
-    // Rendering equation
     Vector4d C = ambient_color + lights_color + reflection_color + refraction_color;
     // Vector4d C = ambient_color + lights_color;
     //Set alpha to 1
@@ -625,7 +754,6 @@ void raytrace_scene()
 int main(int argc, char *argv[])
 {
     setup_scene();
-
     raytrace_scene();
     return 0;
 }
