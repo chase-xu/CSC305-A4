@@ -50,6 +50,7 @@ class AABBTree
 const std::string data_dir = DATA_DIR;
 const std::string filename("raytrace.png");
 const std::string mesh_filename(data_dir + "bunny.off");
+// const std::string mesh_filename(data_dir + "dodeca.off");
 
 
 //Camera settings
@@ -312,7 +313,7 @@ double ray_triangle_intersection(const Vector3d &ray_origin, const Vector3d &ray
 
     if (t > 0 and beta >= 0 and alpha >= 0 and g <= 1){
         p = e + t*d;
-        N = (b-a).cross((c-a)).normalized();
+        N = -(b-a).cross((c-a)).normalized();
         return t;
     }
     return -1;
@@ -566,16 +567,21 @@ Vector4d shoot_ray(const Vector3d &ray_origin, const Vector3d &ray_direction, in
     }
 
     Vector4d refl_color = obj_reflection_color;
-    if (nearest_object == 4)
+    if (nearest_object > -1)
     {
         refl_color = Vector4d(0.5, 0.5, 0.5, 0);
     }
+    // refl_color = Vector4d(0.5, 0.5, 0.5, 0);
     Vector4d reflection_color(0, 0, 0, 0);
     Vector3d d = ray_direction.normalized();
     Vector3d r = d - 2 * (d.dot(N)* N);
+    // if (max_bounce == 0){
+    //     return;
+    // }
     reflection_color = refl_color.cwiseProduct(shoot_ray(p + 0.0001*r, r, max_bounce-1));
     Vector4d refraction_color(0, 0, 0, 0);
-    Vector4d C = ambient_color + lights_color + reflection_color + refraction_color;
+    Vector4d C = ambient_color + lights_color + reflection_color;
+    Vector4d C = ambient_color + lights_color;
     C(3) = 1;
 
     return C;
