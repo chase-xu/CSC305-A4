@@ -29,10 +29,11 @@ class Node
         int parent;   // Index of the parent node (-1 for root)
         int left;     // Index of the left child (-1 for a leaf)
         int right;    // Index of the right child (-1 for a leaf)
-        int triangle = -1; // Index of the node triangle (-1 for internal nodes)
+        int triangle = -1; 
         int index;
         Matrix3d coordinates;
         bool leaf = false; 
+};
 
 class AABBTree
 {
@@ -321,7 +322,6 @@ double ray_sphere_intersection(const Vector3d &ray_origin, const Vector3d &ray_d
 {
     const Vector3d sphere_center = sphere_centers[index];
     const double sphere_radius = sphere_radii[index];
-
     double t = -1;
     Vector3d U = ray_direction.normalized();
     Vector3d q = ray_origin - sphere_center;
@@ -403,7 +403,6 @@ bool ray_box_intersection(const Vector3d &ray_origin, const Vector3d &ray_direct
         t_zmax= c*(min.z() - ray_origin.z());
         t_zmin= c*(max.z() - ray_origin.z());
     }
-
     if (t_xmin > t_xmax or t_ymin > t_ymax or t_zmin > t_zmax){
         return false;
     }else{
